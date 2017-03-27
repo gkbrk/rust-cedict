@@ -1,9 +1,9 @@
 #[derive(Debug)]
 pub struct DictEntry<'a> {
-    traditional: &'a str,
-    simplified: &'a str,
-    pinyin: &'a str,
-    definitions: Vec<&'a str>
+    pub traditional: &'a str,
+    pub simplified: &'a str,
+    pub pinyin: &'a str,
+    pub definitions: Vec<&'a str>
 }
 
 pub fn parse_line(line: &str) -> Result<DictEntry, ()> {
