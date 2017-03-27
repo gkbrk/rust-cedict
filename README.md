@@ -1,5 +1,8 @@
 # cedict - Rust library for parsing CC-CEDICT
 
+[![Crates.io](https://img.shields.io/crates/v/cedict.svg)](https://crates.io/crates/cedict) [![Docs.rs](https://img.shields.io/badge/docs-cedict-brightgreen.svg)](https://docs.rs/cedict)
+
+
 ## What is CC-CEDICT
 CC-CEDICT, or formerly CEDICT, is a freely available Chinese-English dictionary. This library allows you to parse it.
 
