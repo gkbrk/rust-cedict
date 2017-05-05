@@ -1,6 +1,21 @@
+//! cedict is a Rust crate for reading and writing the CC-CEDICT
+//! Chinese-English dictionary format. It can be used to implement Chinese
+//! dictionaries in Rust. It can also serve as a tool for automating
+//! maintenance to the CEDICT project.
+//!
+//! # Examples
+//! ```
+//! let line = "你好 你好 [ni3 hao3] /Hello!/Hi!/How are you?/";
+//! let parsed = cedict::parse_line(line).unwrap();
+//!
+//! assert_eq!(parsed.definitions[0], "Hello!");
+//! ```
+
+
 #![feature(conservative_impl_trait)]
 use std::io::{BufReader, BufRead, Read};
 
+/// A struct that contains all fields of a CEDICT definition
 #[derive(Debug)]
 pub struct DictEntry {
     pub traditional: String,
@@ -9,6 +24,26 @@ pub struct DictEntry {
     pub definitions: Vec<String>
 }
 
+impl DictEntry {
+    /// Formats a DictEntry into a CEDICT formatted line. This function can be
+    /// used to modify or create CEDICT files.
+    pub fn to_string(&self) -> String {
+        format!("{} {} [{}] /{}/", self.traditional, self.simplified,
+                self.pinyin, self.definitions.join("/"))
+    }
+}
+
+
+/// Parses a line in the CEDICT format into a DictEntry
+///
+/// # Examples
+/// ```
+/// let line = "你好 你好 [ni3 hao3] /Hello!/Hi!/How are you?/";
+/// let parsed = cedict::parse_line(line).unwrap();
+///
+/// assert_eq!(parsed.definitions[0], "Hello!");
+/// assert_eq!(parsed.definitions[1], "Hi!");
+/// ```
 pub fn parse_line<S: Into<String>>(line: S) -> Result<DictEntry, ()> {
     let line = line.into();
     let line = line.trim();
@@ -50,6 +85,23 @@ pub fn parse_line<S: Into<String>>(line: S) -> Result<DictEntry, ()> {
     })
 }
 
+/// Returns an iterator over Readers, which can be open files, byte arrays
+/// or anything else that implements Read
+///
+/// # Examples
+/// ```
+/// use std::fs::File;
+///
+/// let mut f = match File::open("cedict.txt") {
+///     Ok(f) => f,
+///     Err(_) => { return; }
+/// };
+/// 
+/// for dict_entry in cedict::parse_reader(f) {
+///     println!("Read the definition of {}. It means {}.", dict_entry.simplified,
+///       dict_entry.definitions[1]);
+/// }
+/// ```
 pub fn parse_reader<T: Read>(f: T) -> impl Iterator<Item=DictEntry> {
     let bufread = BufReader::new(f);
     bufread.lines().filter_map(|x| x.ok())
@@ -104,4 +156,16 @@ fn test_parse_reader() {
             _ => {}
         }
     }
+}
+
+#[test]
+fn test_to_string() {
+    let definition = DictEntry {
+        traditional: "愛".to_string(),
+        simplified: "爱".to_string(),
+        pinyin: "ai4".to_string(),
+        definitions: vec!["to love".to_string(), "to like".to_string()]
+    };
+
+    assert_eq!(definition.to_string(), "愛 爱 [ai4] /to love/to like/");
 }
