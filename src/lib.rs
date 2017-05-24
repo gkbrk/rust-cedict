@@ -10,6 +10,24 @@
 //!
 //! assert_eq!(parsed.definitions[0], "Hello!");
 //! ```
+//!
+//! ```
+//! use std::fs::File;
+//!
+//! match File::open("cedict.txt") {
+//!     Ok(file) => {
+//!         for word in cedict::parse_reader(file) {
+//!             if word.definitions[0].contains("Hello") {
+//!                 println!("{:?}", word);
+//!             }
+//!         }
+//!     },
+//!     Err(_) => {
+//!         println!("Cannot read file");
+//!     }
+//! }
+//!
+//! ```
 
 
 #![feature(conservative_impl_trait)]
@@ -47,6 +65,12 @@ impl DictEntry {
 pub fn parse_line<S: Into<String>>(line: S) -> Result<DictEntry, ()> {
     let line = line.into();
     let line = line.trim();
+
+    // Handle file comments
+    // They are currently ignored
+    if line.starts_with("#") {
+        return Err(());
+    }
 
     let (traditional, line) = {
         let mut parts = line.splitn(2, " ");
@@ -92,14 +116,14 @@ pub fn parse_line<S: Into<String>>(line: S) -> Result<DictEntry, ()> {
 /// ```
 /// use std::fs::File;
 ///
-/// let mut f = match File::open("cedict.txt") {
+/// let f = match File::open("cedict.txt") {
 ///     Ok(f) => f,
 ///     Err(_) => { return; }
 /// };
 /// 
 /// for dict_entry in cedict::parse_reader(f) {
 ///     println!("Read the definition of {}. It means {}.", dict_entry.simplified,
-///       dict_entry.definitions[1]);
+///       dict_entry.definitions[0]);
 /// }
 /// ```
 pub fn parse_reader<T: Read>(f: T) -> impl Iterator<Item=DictEntry> {

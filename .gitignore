@@ -1,3 +1,4 @@
 *.swp
+cedict.txt
 target
 Cargo.lock
