@@ -8,7 +8,7 @@
 //! let line = "你好 你好 [ni3 hao3] /Hello!/Hi!/How are you?/";
 //! let parsed = cedict::parse_line(line).unwrap();
 //!
-//! assert_eq!(parsed.definitions[0], "Hello!");
+//! assert_eq!(parsed.definitions().next(), Some("Hello!"));
 //! ```
 //!
 //! ```
@@ -17,8 +17,8 @@
 //! match File::open("cedict.txt") {
 //!     Ok(file) => {
 //!         for word in cedict::parse_reader(file) {
-//!             if word.definitions[0].contains("Hello") {
-//!                 println!("{:?}", word);
+//!             if word.definitions().next().unwrap().contains("Hello") {
+//!                 println!("{}", word.simplified());
 //!             }
 //!         }
 //!     },
@@ -36,18 +36,59 @@ use std::io::{BufReader, BufRead, Read};
 /// A struct that contains all fields of a CEDICT definition
 #[derive(Debug)]
 pub struct DictEntry {
-    pub traditional: String,
-    pub simplified: String,
-    pub pinyin: String,
-    pub definitions: Vec<String>
+    line: String,
+    traditional: Slice,
+    simplified: Slice,
+    pinyin: Slice,
+    definitions: Vec<Slice>
 }
 
+type Slice = (usize, usize);
+
 impl DictEntry {
+    /// Gets the traditional Chinese characters for the entry.
+    pub fn traditional(&self) -> &str {
+        self.slice(&self.traditional)
+    }
+
+    pub fn simplified(&self) -> &str {
+        self.slice(&self.simplified)
+    }
+
+    pub fn pinyin(&self) -> &str {
+        self.slice(&self.pinyin)
+    }
+
+    pub fn definitions(&self) -> impl Iterator<Item=&str> {
+        self.definitions.iter().map(move |x| self.slice(&x))
+    }
+
+    fn slice(&self, slice: &Slice) -> &str {
+        &self.line[slice.0..slice.1]
+    }
+
+    pub fn new(trad: &str, simp: &str, pinyin: &str, defs: Vec<&str>) -> DictEntry {
+        let mut line = String::new();
+
+        line.push_str(trad);
+        line.push(' ');
+        line.push_str(simp);
+        line.push_str(" [");
+        line.push_str(pinyin);
+        line.push_str("] /");
+
+        for def in defs {
+            line.push_str(def);
+            line.push('/');
+        }
+
+        parse_line(line).unwrap()
+    }
+    
     /// Formats a DictEntry into a CEDICT formatted line. This function can be
     /// used to modify or create CEDICT files.
-    pub fn to_string(&self) -> String {
-        format!("{} {} [{}] /{}/", self.traditional, self.simplified,
-                self.pinyin, self.definitions.join("/"))
+    pub fn to_string(&self) -> &str {
+        &self.line
     }
 }
 
@@ -59,13 +100,16 @@ impl DictEntry {
 /// let line = "你好 你好 [ni3 hao3] /Hello!/Hi!/How are you?/";
 /// let parsed = cedict::parse_line(line).unwrap();
 ///
-/// assert_eq!(parsed.definitions[0], "Hello!");
-/// assert_eq!(parsed.definitions[1], "Hi!");
+/// assert_eq!(parsed.definitions().nth(0), Some("Hello!"));
+/// assert_eq!(parsed.definitions().nth(1), Some("Hi!"));
 /// ```
 pub fn parse_line<S: Into<String>>(line: S) -> Result<DictEntry, ()> {
     let line = line.into();
     let line = line.trim();
-
+    let line_orig = line;
+    let lineptr = line.as_ptr();
+    let linelen = line.len();
+    
     // Handle file comments
     // They are currently ignored
     if line.starts_with("#") {
@@ -88,13 +132,19 @@ pub fn parse_line<S: Into<String>>(line: S) -> Result<DictEntry, ()> {
         ( &line[pinyin_begin..pinyin_end], &line[pinyin_end+1..] )
     };
 
+    let toslice = |a: &str| {
+        let start = a.as_ptr() as usize - lineptr as usize;
+        assert!(start < linelen);
+        (start, start + a.len())
+    };
+
     let definitions = {
         let mut defs = Vec::new();
         let mut line = line.trim();
         while !line.is_empty() {
             let def_end = line.find('/').ok_or(())?;
             if !line[..def_end].is_empty() {
-                defs.push(line[..def_end].to_string());
+                defs.push(toslice(&line[..def_end]));
             }
             line = &line[def_end + 1..]
         }
@@ -102,9 +152,10 @@ pub fn parse_line<S: Into<String>>(line: S) -> Result<DictEntry, ()> {
     };
     
     Ok(DictEntry {
-        traditional: traditional.to_string(),
-        simplified: simplified.to_string(),
-        pinyin: pinyin.to_string(),
+        line: line_orig.to_string(),
+        traditional: toslice(traditional),
+        simplified: toslice(simplified),
+        pinyin: toslice(pinyin),
         definitions: definitions
     })
 }
@@ -122,8 +173,8 @@ pub fn parse_line<S: Into<String>>(line: S) -> Result<DictEntry, ()> {
 /// };
 /// 
 /// for dict_entry in cedict::parse_reader(f) {
-///     println!("Read the definition of {}. It means {}.", dict_entry.simplified,
-///       dict_entry.definitions[0]);
+///     println!("Read the definition of {}. It means {}.", dict_entry.simplified(),
+///       dict_entry.definitions().next().unwrap());
 /// }
 /// ```
 pub fn parse_reader<T: Read>(f: T) -> impl Iterator<Item=DictEntry> {
@@ -138,7 +189,7 @@ fn test_parse_pinyin() {
     let line = "你好 你好 [ni3 hao3] /Hello!/Hi!/How are you?/";
     let parsed = parse_line(line).unwrap();
 
-    assert_eq!(parsed.pinyin, "ni3 hao3");
+    assert_eq!(parsed.pinyin(), "ni3 hao3");
 }
 
 #[test]
@@ -146,7 +197,7 @@ fn test_parse_simplified() {
     let line = "你好 你好 [ni3 hao3] /Hello!/Hi!/How are you?/";
     let parsed = parse_line(line).unwrap();
 
-    assert_eq!(parsed.simplified, "你好");
+    assert_eq!(parsed.simplified(), "你好");
 }
 
 #[test]
@@ -154,8 +205,8 @@ fn test_parse_traditional() {
     let line = "愛 爱 [ai4] /to love/to be fond of/to like/";
     let parsed = parse_line(line).unwrap();
 
-    assert_eq!(parsed.traditional, "愛");
-    assert_eq!(parsed.simplified, "爱");
+    assert_eq!(parsed.traditional(), "愛");
+    assert_eq!(parsed.simplified(), "爱");
 }
 
 #[test]
@@ -166,16 +217,16 @@ fn test_parse_reader() {
     for (i, word) in parse_reader(file.as_bytes()).enumerate() {
         match i {
             0 => {
-                assert_eq!(word.simplified, "你好");
-                assert_eq!(word.traditional, "你好");
-                assert_eq!(word.pinyin, "ni3 hao3");
-                assert_eq!(word.definitions[0], "Hello!");
+                assert_eq!(word.simplified(), "你好");
+                assert_eq!(word.traditional(), "你好");
+                assert_eq!(word.pinyin(), "ni3 hao3");
+                assert_eq!(word.definitions().next(), Some("Hello!"));
             },
             1 => {
-                assert_eq!(word.simplified, "爱");
-                assert_eq!(word.traditional, "愛");
-                assert_eq!(word.pinyin, "ai4");
-                assert_eq!(word.definitions[1], "to be fond of");
+                assert_eq!(word.simplified(), "爱");
+                assert_eq!(word.traditional(), "愛");
+                assert_eq!(word.pinyin(), "ai4");
+                assert_eq!(word.definitions().nth(1), Some("to be fond of"));
             },
             _ => {}
         }
@@ -184,12 +235,7 @@ fn test_parse_reader() {
 
 #[test]
 fn test_to_string() {
-    let definition = DictEntry {
-        traditional: "愛".to_string(),
-        simplified: "爱".to_string(),
-        pinyin: "ai4".to_string(),
-        definitions: vec!["to love".to_string(), "to like".to_string()]
-    };
+    let definition = DictEntry::new("愛", "爱", "ai4", vec!["to love", "to like"]);
 
     assert_eq!(definition.to_string(), "愛 爱 [ai4] /to love/to like/");
 }
