@@ -29,8 +29,6 @@
 //!
 //! ```
 
-
-#![feature(conservative_impl_trait)]
 use std::io::{BufReader, BufRead, Read};
 
 /// A struct that contains all fields of a CEDICT definition
@@ -60,7 +58,7 @@ impl DictEntry {
     }
 
     pub fn definitions(&self) -> impl Iterator<Item=&str> {
-        self.definitions.iter().map(move |x| self.slice(&x))
+        self.definitions.iter().map(move |x| self.slice(x))
     }
 
     fn slice(&self, slice: &Slice) -> &str {
@@ -93,7 +91,7 @@ impl DictEntry {
 }
 
 
-/// Parses a line in the CEDICT format into a DictEntry
+/// Parses a line in the CEDICT format into a `DictEntry`
 ///
 /// # Examples
 /// ```
@@ -112,17 +110,17 @@ pub fn parse_line<S: Into<String>>(line: S) -> Result<DictEntry, ()> {
     
     // Handle file comments
     // They are currently ignored
-    if line.starts_with("#") {
+    if line.starts_with('#') {
         return Err(());
     }
 
     let (traditional, line) = {
-        let mut parts = line.splitn(2, " ");
+        let mut parts = line.splitn(2, ' ');
         ( parts.next().ok_or(())?, parts.next().ok_or(())? )
     };
 
     let (simplified, line) = {
-        let mut parts = line.splitn(2, " ");
+        let mut parts = line.splitn(2, ' ');
         ( parts.next().ok_or(())?, parts.next().ok_or(())? )
     };
 
@@ -156,7 +154,7 @@ pub fn parse_line<S: Into<String>>(line: S) -> Result<DictEntry, ()> {
         traditional: toslice(traditional),
         simplified: toslice(simplified),
         pinyin: toslice(pinyin),
-        definitions: definitions
+        definitions
     })
 }
 
@@ -180,7 +178,7 @@ pub fn parse_line<S: Into<String>>(line: S) -> Result<DictEntry, ()> {
 pub fn parse_reader<T: Read>(f: T) -> impl Iterator<Item=DictEntry> {
     let bufread = BufReader::new(f);
     bufread.lines().filter_map(|x| x.ok())
-        .map(|x| parse_line(x))
+        .map(parse_line)
         .filter_map(|x| x.ok())
 }
 
