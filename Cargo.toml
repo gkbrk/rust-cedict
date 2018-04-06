@@ -1,6 +1,6 @@
 [package]
 name = "cedict"
-version = "0.2.2"
+version = "0.2.3"
 authors = ["Gökberk Yaltıraklı <webdosusb@gmail.com>"]
 description = "Parser for the CC-CEDICT Chinese-English Dictionary"
 license = "MIT"
