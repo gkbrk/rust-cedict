@@ -1,11 +1,12 @@
 [package]
 name = "cedict"
-version = "0.2.1"
+version = "0.2.2"
 authors = ["Gökberk Yaltıraklı <webdosusb@gmail.com>"]
 description = "Parser for the CC-CEDICT Chinese-English Dictionary"
 license = "MIT"
 keywords = ["chinese", "dictionary", "cedict", "parser"]
 repository = "https://github.com/gkbrk/rust-cedict"
 documentation = "https://docs.rs/cedict"
+readme = "README.md"
 
 [dependencies]
