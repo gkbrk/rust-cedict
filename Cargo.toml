@@ -1,10 +1,12 @@
 [package]
 name = "cedict"
-version = "0.2.3"
-authors = ["Gökberk Yaltıraklı <webdosusb@gmail.com>"]
+version = "0.3.0"
+edition = "2021"
+authors = ["Gokberk Yaltirakli <opensource@gkbrk.com>"]
 description = "Parser for the CC-CEDICT Chinese-English Dictionary"
 license = "MIT"
 keywords = ["chinese", "dictionary", "cedict", "parser"]
+categories = ["no_std", "parsing", "text-processing", "parser-implementations"]
 repository = "https://github.com/gkbrk/rust-cedict"
 documentation = "https://docs.rs/cedict"
 readme = "README.md"
