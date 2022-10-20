@@ -6,9 +6,13 @@
 //! # Examples
 //! ```
 //! let line = "你好 你好 [ni3 hao3] /Hello!/Hi!/How are you?/";
-//! let parsed = cedict::parse_line(line).unwrap();
+//! let parsed = cedict::parse_line(line);
 //!
-//! assert_eq!(parsed.definitions().next(), Some("Hello!"));
+//! if let cedict::Line::Entry(entry) = parsed {
+//!    assert_eq!(entry.simplified(), "你好");
+//!    assert_eq!(entry.pinyin(), "ni3 hao3");
+//!    assert_eq!(entry.definitions().collect::<Vec<_>>(), vec!["Hello!", "Hi!", "How are you?"]);
+//! }
 //! ```
 //!
 //! ```
@@ -29,247 +33,229 @@
 //!
 //! ```
 
-#![feature(conservative_impl_trait)]
-use std::io::{BufRead, BufReader, Read};
+#![deny(unsafe_code)]
 
-/// A struct that contains all fields of a CEDICT definition
-#[derive(Debug)]
-pub struct DictEntry {
-    line: String,
+use std::option::Option;
+
+/// Used to represent a range of characters in a string.
+type Slice = (usize, usize);
+
+/// Represents a single dictionary entry in the CC-CEDICT format.
+pub struct DictEntry<T> {
+    line: T,
     traditional: Slice,
     simplified: Slice,
     pinyin: Slice,
-    definitions: Vec<Slice>,
+    definitions: Slice,
 }
 
-type Slice = (usize, usize);
+impl std::fmt::Debug for DictEntry<String> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        write!(
+            f,
+            "DictEntry {{ traditional: `{:?}`, simplified: `{:?}`, pinyin: `{:?}`, definitions: [{:?}] }}",
+            self.traditional(),
+            self.simplified(),
+            self.pinyin(),
+            self.definitions().collect::<Vec<_>>().join("~")
+        )
+    }
+}
 
-impl DictEntry {
-    /// Gets the traditional Chinese characters for the entry.
-    ///
+impl<T: AsRef<str>> DictEntry<T> {
+    /// Returns the traditional characters of the entry.
+    /// 
+    /// # Examples
     /// ```
-    /// let line = "學習 学习 [xue2 xi2] /to learn/to study/";
-    /// let dict = cedict::parse_line(line).unwrap();
-    ///
-    /// assert_eq!(dict.traditional(), "學習");
+    /// let line = "睡覺 睡觉 [shui4 jiao4] /to go to bed/to sleep/";
+    /// let parsed = cedict::parse_dict_entry(line).unwrap();
+    /// 
+    /// assert_eq!(parsed.traditional(), "睡覺");
     /// ```
     pub fn traditional(&self) -> &str {
-        self.slice(&self.traditional)
+        &self.line.as_ref()[self.traditional.0..self.traditional.1]
     }
 
-    /// Gets the simplified traditional characters for the entry.
-    ///
-    /// ```
-    /// let line = "學習 学习 [xue2 xi2] /to learn/to study/";
-    /// let dict = cedict::parse_line(line).unwrap();
-    ///
-    /// assert_eq!(dict.simplified(), "学习");
-    /// ```
     pub fn simplified(&self) -> &str {
-        self.slice(&self.simplified)
+        &self.line.as_ref()[self.simplified.0..self.simplified.1]
     }
 
-    /// Gets the pinyin form of the entry.
-    ///
-    /// ```
-    /// let line = "學習 学习 [xue2 xi2] /to learn/to study/";
-    /// let dict = cedict::parse_line(line).unwrap();
-    ///
-    /// assert_eq!(dict.pinyin(), "xue2 xi2");
-    /// ```
     pub fn pinyin(&self) -> &str {
-        self.slice(&self.pinyin)
+        &self.line.as_ref()[self.pinyin.0..self.pinyin.1]
     }
 
-    /// Returns an iterator over the definitions of the entry.
-    ///
-    /// ```
-    /// let line = "學習 学习 [xue2 xi2] /to learn/to study/";
-    /// let dict = cedict::parse_line(line).unwrap();
-    ///
-    /// assert_eq!(dict.definitions().nth(0), Some("to learn"));
-    /// assert_eq!(dict.definitions().nth(1), Some("to study"));
-    /// ```
-    pub fn definitions(&self) -> impl Iterator<Item = &str> {
-        self.definitions.iter().map(move |x| self.slice(x))
-    }
-
-    fn slice(&self, slice: &Slice) -> &str {
-        &self.line[slice.0..slice.1]
-    }
-
-    /// Creates a new `DictEntry`. This can be used to add new entries to the
-    /// file.
-    pub fn new(trad: &str, simp: &str, pinyin: &str, defs: Vec<&str>) -> DictEntry {
-        let mut line = String::new();
-
-        line.push_str(trad);
-        line.push(' ');
-        line.push_str(simp);
-        line.push_str(" [");
-        line.push_str(pinyin);
-        line.push_str("] /");
-
-        for def in defs {
-            line.push_str(def);
-            line.push('/');
-        }
-
-        parse_line(line).unwrap()
-    }
-
-    /// Formats a DictEntry into a CEDICT formatted line. This function can be
-    /// used to modify or create CEDICT files.
-    pub fn to_string(&self) -> &str {
-        &self.line
+    pub fn definitions<'a>(&'a self) -> impl Iterator<Item = &'a str> {
+        let line = self.line.as_ref();
+        let line = &line[self.definitions.0..self.definitions.1];
+        let line = line.trim_matches('/');
+        line.split('/')
     }
 }
 
-/// Parses a line in the CEDICT format into a `DictEntry`
-///
-/// # Examples
-/// ```
-/// let line = "你好 你好 [ni3 hao3] /Hello!/Hi!/How are you?/";
-/// let parsed = cedict::parse_line(line).unwrap();
-///
-/// assert_eq!(parsed.definitions().nth(0), Some("Hello!"));
-/// assert_eq!(parsed.definitions().nth(1), Some("Hi!"));
-/// ```
-pub fn parse_line<S: Into<String>>(line: S) -> Result<DictEntry, ()> {
-    let line = line.into();
-    let line = line.trim();
-    let line_orig = line;
-    let lineptr = line.as_ptr();
-    let linelen = line.len();
+pub fn parse_dict_entry<T: AsRef<str>>(line: T) -> Option<DictEntry<T>> {
+    let mut chars = line.as_ref().char_indices().peekable();
 
-    // Handle file comments
-    // They are currently ignored
-    if line.starts_with('#') {
-        return Err(());
+    // Skip comments and empty lines
+    match chars.peek() {
+        Some((_, '#')) => return None,
+        None => return None,
+        _ => (),
     }
 
-    let (traditional, line) = {
-        let mut parts = line.splitn(2, ' ');
-        (parts.next().ok_or(())?, parts.next().ok_or(())?)
-    };
-
-    let (simplified, line) = {
-        let mut parts = line.splitn(2, ' ');
-        (parts.next().ok_or(())?, parts.next().ok_or(())?)
-    };
-
-    let (pinyin, line) = {
-        let pinyin_begin = line.find('[').ok_or(())? + 1;
-        let pinyin_end = line.find(']').ok_or(())?;
-        (&line[pinyin_begin..pinyin_end], &line[pinyin_end + 1..])
-    };
-
-    let toslice = |a: &str| {
-        let start = a.as_ptr() as usize - lineptr as usize;
-        assert!(start < linelen);
-        (start, start + a.len())
-    };
-
-    let definitions = {
-        let mut defs = Vec::new();
-        let mut line = line.trim();
-        while !line.is_empty() {
-            let def_end = line.find('/').ok_or(())?;
-            if !line[..def_end].is_empty() {
-                defs.push(toslice(&line[..def_end]));
+    let traditional_start = chars.peek()?.0;
+    loop {
+        match chars.peek() {
+            Some((_, ' ')) => break,
+            None => return None,
+            _ => {
+                chars.next();
             }
-            line = &line[def_end + 1..]
         }
-        defs
+    }
+    let traditional_end = chars.peek()?.0;
+
+    // We know the next character is a space, so we can skip it
+    match chars.next() {
+        Some((_, ' ')) => (),
+        _ => return None,
     };
 
-    Ok(DictEntry {
-        line: line_orig.to_string(),
-        traditional: toslice(traditional),
-        simplified: toslice(simplified),
-        pinyin: toslice(pinyin),
-        definitions,
+    let simplified_start = chars.next()?.0;
+    loop {
+        match chars.peek() {
+            Some((_, ' ')) => break,
+            None => return None,
+            _ => {
+                chars.next();
+            }
+        }
+    }
+    let simplified_end = chars.peek()?.0;
+
+    // We know the next character is a space, so we can skip it
+    match chars.next() {
+        Some((_, ' ')) => (),
+        _ => return None,
+    };
+
+    // Expecting a '['
+    match chars.next() {
+        Some((_, '[')) => (),
+        _ => return None,
+    };
+
+    let pinyin_start = chars.next()?.0;
+    loop {
+        match chars.peek() {
+            Some((_, ']')) => break,
+            None => return None,
+            _ => {
+                chars.next();
+            }
+        }
+    }
+    let pinyin_end = chars.peek()?.0;
+
+    // We know the next character is a ']', so we can skip it
+    match chars.next() {
+        Some((_, ']')) => (),
+        _ => return None,
+    };
+
+    // We know the next character is a space, so we can skip it
+    match chars.next() {
+        Some((_, ' ')) => (),
+        _ => return None,
+    };
+
+    // We know the next character is a '/', so we can skip it
+    match chars.next() {
+        Some((_, '/')) => (),
+        _ => return None,
+    };
+
+    let definitions_start = chars.next()?.0;
+
+    let len = line.as_ref().len();
+
+    Some(DictEntry {
+        line,
+        traditional: (traditional_start, traditional_end),
+        simplified: (simplified_start, simplified_end),
+        pinyin: (pinyin_start, pinyin_end),
+        definitions: (definitions_start, len),
     })
 }
 
-/// Returns an iterator over Readers, which can be open files, byte arrays
-/// or anything else that implements Read
-///
-/// # Examples
-/// ```
-/// use std::fs::File;
-///
-/// let f = match File::open("cedict.txt") {
-///     Ok(f) => f,
-///     Err(_) => { return; }
-/// };
-///
-/// for dict_entry in cedict::parse_reader(f) {
-///     println!("Read the definition of {}. It means {}.", dict_entry.simplified(),
-///       dict_entry.definitions().next().unwrap());
-/// }
-/// ```
-pub fn parse_reader<T: Read>(f: T) -> impl Iterator<Item = DictEntry> {
-    let bufread = BufReader::new(f);
-    bufread
-        .lines()
-        .filter_map(|x| x.ok())
-        .map(parse_line)
-        .filter_map(|x| x.ok())
+/// Check if a line is a comment. Comments start with a '#'.
+pub fn is_comment(line: &str) -> bool {
+    let bytes = line.as_bytes();
+    !bytes.is_empty() && bytes[0] == b'#'
 }
 
-#[test]
-fn test_parse_pinyin() {
-    let line = "你好 你好 [ni3 hao3] /Hello!/Hi!/How are you?/";
-    let parsed = parse_line(line).unwrap();
-
-    assert_eq!(parsed.pinyin(), "ni3 hao3");
+/// Check if a line contains metadata. Metadata lines start with '#!'.
+pub fn is_metadata(line: &str) -> bool {
+    let bytes = line.as_bytes();
+    bytes.len() > 1 && bytes[0] == b'#' && bytes[1] == b'!'
 }
 
-#[test]
-fn test_parse_simplified() {
-    let line = "你好 你好 [ni3 hao3] /Hello!/Hi!/How are you?/";
-    let parsed = parse_line(line).unwrap();
-
-    assert_eq!(parsed.simplified(), "你好");
+#[derive(Debug)]
+pub enum Line {
+    Comment(String),
+    Metadata(String, String),
+    Entry(DictEntry<String>),
+    Empty,
+    Incorrect,
 }
 
-#[test]
-fn test_parse_traditional() {
-    let line = "愛 爱 [ai4] /to love/to be fond of/to like/";
-    let parsed = parse_line(line).unwrap();
+pub fn parse_line<T: AsRef<str>>(line: T) -> Line {
+    let line = line.as_ref();
 
-    assert_eq!(parsed.traditional(), "愛");
-    assert_eq!(parsed.simplified(), "爱");
-}
+    if line.is_empty() {
+        Line::Empty
+    } else if is_metadata(line) {
+        // Strip the '#!' prefix
+        let line = &line[2..].trim();
 
-#[test]
-fn test_parse_reader() {
-    let file = "你好 你好 [ni3 hao3] /Hello!/Hi!/How are you?/
-                愛 爱 [ai4] /to love/to be fond of/to like/";
-
-    for (i, word) in parse_reader(file.as_bytes()).enumerate() {
-        match i {
-            0 => {
-                assert_eq!(word.simplified(), "你好");
-                assert_eq!(word.traditional(), "你好");
-                assert_eq!(word.pinyin(), "ni3 hao3");
-                assert_eq!(word.definitions().next(), Some("Hello!"));
-            }
-            1 => {
-                assert_eq!(word.simplified(), "爱");
-                assert_eq!(word.traditional(), "愛");
-                assert_eq!(word.pinyin(), "ai4");
-                assert_eq!(word.definitions().nth(1), Some("to be fond of"));
-            }
-            _ => {}
+        // Split the line into key and value.
+        let mut parts = line.splitn(2, '=');
+        Line::Metadata(
+            parts.next().unwrap().trim().to_string(),
+            parts.next().unwrap().trim().to_string(),
+        )
+    } else if is_comment(line) {
+        // Strip the '#' prefix
+        Line::Comment(line[1..].trim().into())
+    } else {
+        match parse_dict_entry(line.into()) {
+            Some(entry) => Line::Entry(entry),
+            None => Line::Incorrect,
         }
     }
 }
 
-#[test]
-fn test_to_string() {
-    let definition = DictEntry::new("愛", "爱", "ai4", vec!["to love", "to like"]);
+use std::io::BufRead;
 
-    assert_eq!(definition.to_string(), "愛 爱 [ai4] /to love/to like/");
+pub fn parse_reader<T: std::io::Read>(f: T) -> impl Iterator<Item = DictEntry<String>> {
+    let lines = std::io::BufReader::new(f).lines();
+    let lines = lines.filter_map(|l| l.ok());
+    let lines = lines.filter(|l| !is_comment(l));
+
+    lines.filter_map(|x| parse_dict_entry(x))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_dict_entry() {
+        let line = "睡覺 睡觉 [shui4 jiao4] /to go to bed/to sleep/";
+        let entry = parse_dict_entry(line).unwrap();
+        assert_eq!(entry.traditional(), "睡覺");
+        assert_eq!(entry.simplified(), "睡觉");
+        assert_eq!(entry.pinyin(), "shui4 jiao4");
+        assert_eq!(entry.definitions().nth(0), Some("to go to bed"));
+        assert_eq!(entry.definitions().nth(1), Some("to sleep"));
+    }
 }
