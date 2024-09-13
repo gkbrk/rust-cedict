@@ -41,6 +41,7 @@ use std::option::Option;
 type Slice = (usize, usize);
 
 /// Represents a single dictionary entry in the CC-CEDICT format.
+#[derive(Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct DictEntry<T> {
     line: T,
     traditional: Slice,
