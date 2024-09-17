@@ -1,6 +1,6 @@
 [package]
 name = "cedict"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 authors = ["Gokberk Yaltirakli <opensource@gkbrk.com>"]
 description = "Parser for the CC-CEDICT Chinese-English Dictionary"
